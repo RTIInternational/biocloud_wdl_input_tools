@@ -28,7 +28,7 @@ if [ -z "$repo_dir" ] || [ -z "$inputs_dir" ] || [ -z "$charge_code" ] || [ -z "
 	exit 1
 fi
 
-workflow_id=4821556
+workflow_id=2246242
 
 timestamp=$(date +"%Y%m%d-%H%M%S")
 run_id_output="$repo_dir/run_ids_${timestamp}.tsv"
