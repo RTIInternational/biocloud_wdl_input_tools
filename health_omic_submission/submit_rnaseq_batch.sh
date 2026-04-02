@@ -28,7 +28,7 @@ if [ -z "$repo_dir" ] || [ -z "$inputs_dir" ] || [ -z "$charge_code" ] || [ -z "
 	exit 1
 fi
 
-workflow_id=2246242
+workflow_id=4821556
 
 timestamp=$(date +"%Y%m%d-%H%M%S")
 run_id_output="$repo_dir/run_ids_${timestamp}.tsv"
@@ -47,13 +47,13 @@ if [ -n "$run_ids_status_file" ]; then
 	printf "sample_id\trun_id\tstatus\n" > "$resubmit_status_output"
 fi
 
-for parameters in "$inputs_dir"/*.json; do
+for parameters in "$inputs_dir"/*_inputs.json; do
 	[ -f "$parameters" ] || continue
 	name=$(basename "$parameters" _inputs.json)
 	if [ -n "$resubmit_sample_ids_file" ] && ! grep -Fxq "$name" "$resubmit_sample_ids_file"; then
 		continue
 	fi
-	output_uri="$output_uri_base/$name/"
+	output_uri="$output_uri_base$name/"
 	echo "Starting run for $name with parameters from $parameters"
 	docker run -ti \
 	-v "$repo_dir:$repo_dir" \

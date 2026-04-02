@@ -3,13 +3,12 @@
 import argparse
 import logging
 import sys
-import pandas as pd
 import json
 import time
 import shutil
+import pandas as pd
 
 import wdl_input_tools.core as wdl
-import wdl_input_tools.cromwell as cromwell
 import wdl_input_tools.helpers as utils
 import wdl_input_tools.cli as cli
 
@@ -48,22 +47,13 @@ def get_argparser():
                                type=cli.dir_type_arg,
                                dest="output_dir",
                                required=True,
-                               help="Output dir where batch input, label, and cromwell status output files will be generated.")
+                               help="Output dir where batch input and config record files will be generated.")
 
-    # Option to override name-checking
-    # If not specified, program will error out if batch_name is not unique to cromwell
+    # Retained for compatibility with older command lines.
     argparser_obj.add_argument("--force",
                                action="store_true",
                                dest="force_overwrite",
-                               help="Flag to disable batch-name uniqueness checking.")
-
-    # Cromwell server IP address
-    argparser_obj.add_argument("--cromwell-url",
-                               action="store",
-                               type=str,
-                               dest="cromwell_url",
-                               required=True,
-                               help="URL for connecting to Cromwell server (IP + Port; e.g. 10.12.154.0:8000)")
+                               help="Deprecated compatibility flag. Ignored.")
 
     # Verbosity level
     argparser_obj.add_argument("-v",
@@ -93,11 +83,7 @@ def main():
     ss_file  = args.sample_sheet_file
     batch_name = args.batch_name
     output_dir = args.output_dir
-    force_overwrite = args.force_overwrite
-    cromwell_url = args.cromwell_url
-
-    # Standardize url
-    cromwell_url = utils.fix_url(cromwell_url)
+    _force_overwrite = args.force_overwrite
 
     # Configure logging appropriate for verbosity
     utils.configure_logging(args.verbosity_level)
@@ -111,27 +97,14 @@ def main():
     # Validate sample sheet using validation functions specified in batch config file
     batch_config.validate_sample_sheet(sample_sheet)
 
-    # Authenticate and validate cromwell server
-    auth = cromwell.get_cromwell_auth(url=cromwell_url)
-    cromwell.validate_cromwell_server(auth)
-
-    # Throw error if batch name is not unique
-    if not cromwell.is_unique_batch_name(auth, batch_name) and not force_overwrite:
-        err_msg = "Batch name '{0}' is not unique! Pick another name for this batch".format(batch_name)
-        logging.error(err_msg)
-        raise IOError(err_msg)
-
     # Convert sample sheet to WDL json inputs
     wdl_template = batch_config.batch_wdl_template
-    wf_name = wdl_template.workflow_name
 
     if batch_config.wf_type == "scatter":
         # Scatter workflows convert ss to list of jsons where each row is input to separate wf (e.g. RNAseq wf)
         logging.info("Generating workflow inputs json...")
         ss_inputs = sample_sheet.sample_sheet.to_dict(orient="records")
         inputs_json = [wdl_template.make_wf_input(ss_input) for ss_input in ss_inputs]
-        logging.info("Generating workflow labels json...")
-        labels_json = [wdl.get_wf_labels(sample, batch_name, wf_name) for sample in sample_sheet.sample_names]
 
     elif batch_config.wf_type == "gather":
         # Gather workflows convert ss to single json
@@ -139,31 +112,16 @@ def main():
         logging.info("Generating workflow inputs json...")
         inputs_json = sample_sheet.sample_sheet.to_dict(orient="list")
         inputs_json = wdl_template.make_wf_input(inputs_json)
-        logging.info("Generating workflow labels json...")
-        labels_json = wdl.get_wf_labels(batch_name, batch_name, wf_name)
 
     # Write batch output files
     timestamp = time.strftime("%Y%m%d-%H%M%S")
     output_prefix = "{0}/{1}".format(output_dir, batch_name)
     batch_inputs_file = "{0}.make_batch.inputs.{1}.json".format(output_prefix, timestamp)
-    batch_labels_file = "{0}.make_batch.labels.{1}.json".format(output_prefix, timestamp)
-    batch_status_file = "{0}.make_batch.report.{1}.xlsx".format(output_prefix, timestamp)
     batch_config_record_file = "{0}.make_batch.config.{1}.yaml".format(output_prefix, timestamp)
 
     # Write batch inputs to json file
-    with open(batch_inputs_file, "w") as fh:
+    with open(batch_inputs_file, "w", encoding="utf-8") as fh:
         json.dump(inputs_json, fh, indent=1, cls=utils.NpEncoder)
-
-    # Write batch label json file
-    with open(batch_labels_file, "w") as fh:
-        json.dump(labels_json, fh, indent=1, cls=utils.NpEncoder)
-
-    # Write batch status sheet
-    logging.info("Making cromwell status sheet for batch...")
-    if batch_config.wf_type == "gather":
-        labels_json = {k: [v] for k,v in labels_json.items()}
-    status_df = pd.DataFrame(data=labels_json)
-    status_df.to_excel(batch_status_file, index=False)
 
     # Write record of batch config so we know how this set of inputs was created
     shutil.copy(batch_config_file, batch_config_record_file)

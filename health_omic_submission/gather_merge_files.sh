@@ -17,7 +17,9 @@ if [[ ! -f "$run_id_status_tsv" ]]; then
     exit 1
 fi
 
-output_json="$3.inputs.json"
+run_id_status_dir=$(dirname "$run_id_status_tsv")
+timestamp=$(date +"%Y%m%d-%H%M%S")
+output_json="$run_id_status_dir/${analysis_name}_${timestamp}.inputs.json"
 
 bucket=$(echo "$rna_seq_run_s3" | sed -E 's#^s3://([^/]+)/?.*#\1#')
 
@@ -61,6 +63,7 @@ for sample_run_pair in "${sample_run_pairs[@]}"; do
     echo "Processing sample: $sample_id (run_id: $run_id)"
 
     prefix="$rna_seq_run_s3/$sample_id/$run_id/"
+    echo $prefix
     mapfile -t keys < <(aws s3 ls "$prefix" --recursive | awk '{print $4}')
 
     multiqc_input_key=$(printf '%s\n' "${keys[@]}" | grep -E '/out/multiqc_input_dir/.*\.tar\.gz$' | head -n 1 || true)
@@ -122,4 +125,6 @@ data = {
 
 output_json.write_text(json.dumps(data, indent=2), encoding="utf-8")
 PY
+
+echo "Saved output JSON: $output_json"
 
