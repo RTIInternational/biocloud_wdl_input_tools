@@ -57,6 +57,7 @@ for parameters in "$inputs_dir"/*_inputs.json; do
 	echo "Starting run for $name with parameters from $parameters"
 	docker run -ti \
 	-v "$repo_dir:$repo_dir" \
+	-v "$HOME/.aws:$HOME/.aws" \
 	-e task=start_run \
 	-e charge_code="$charge_code" \
 	-e aws_profile=default \
