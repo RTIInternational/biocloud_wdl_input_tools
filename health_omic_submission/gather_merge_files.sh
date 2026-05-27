@@ -1,27 +1,72 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -lt 4 ]]; then
-    echo "Usage: $0 <rna_seq_run_s3> <run_id_status_tsv> <analysis_name> <annotation_gtf>" >&2
+usage() {
+    echo "Usage: $0 -r <rna_seq_run_s3> -s <run_id_status_tsv> -n <analysis_name> -g <annotation_gtf>" >&2
+}
+
+rna_seq_run_s3=""
+run_id_status_tsv=""
+analysis_name=""
+annotation_gtf=""
+
+while getopts "r:s:n:g:" opt; do
+    case "$opt" in
+        r) rna_seq_run_s3=${OPTARG%/} ;;
+        s) run_id_status_tsv=$OPTARG ;;
+        n) analysis_name=$OPTARG ;;
+        g) annotation_gtf=$OPTARG ;;
+        *) usage; exit 1 ;;
+    esac
+done
+
+if [[ -z "$rna_seq_run_s3" || -z "$run_id_status_tsv" || -z "$analysis_name" || -z "$annotation_gtf" ]]; then
+    usage
     exit 1
 fi
-
-rna_seq_run_s3=${1%/}
-run_id_status_tsv=$2
-
-analysis_name=$3
-annotation_gtf=$4
 
 if [[ ! -f "$run_id_status_tsv" ]]; then
     echo "run_id_status_tsv not found: $run_id_status_tsv" >&2
     exit 1
 fi
 
+if [[ "$rna_seq_run_s3" != s3://* ]]; then
+    echo "rna_seq_run_s3 must start with s3:// : $rna_seq_run_s3" >&2
+    exit 1
+fi
+
+s3_base_uri="${rna_seq_run_s3%/}"
+s3_base_without_scheme="${s3_base_uri#s3://}"
+
+if [[ "$s3_base_without_scheme" == */* ]]; then
+    s3_base_key_prefix="${s3_base_without_scheme#*/}"
+else
+    s3_base_key_prefix=""
+fi
+
+to_relative_s3_path() {
+    local key="$1"
+    local key_without_scheme="$key"
+
+    if [[ -z "$key" ]]; then
+        echo ""
+        return
+    fi
+
+    if [[ "$key_without_scheme" == s3://* ]]; then
+        key_without_scheme="${key_without_scheme#s3://*/}"
+    fi
+
+    if [[ -n "$s3_base_key_prefix" ]]; then
+        key_without_scheme="${key_without_scheme#${s3_base_key_prefix}/}"
+    fi
+
+    echo "$key_without_scheme"
+}
+
 run_id_status_dir=$(dirname "$run_id_status_tsv")
 timestamp=$(date +"%Y%m%d-%H%M%S")
 output_json="$run_id_status_dir/${analysis_name}_${timestamp}.inputs.json"
-
-bucket=$(echo "$rna_seq_run_s3" | sed -E 's#^s3://([^/]+)/?.*#\1#')
 
 mapfile -t sample_run_pairs < <(
     python3 - <<'PY' "$run_id_status_tsv"
@@ -72,19 +117,19 @@ for sample_run_pair in "${sample_run_pairs[@]}"; do
 
     sample_names+=("$sample_id")
     if [[ -n "$multiqc_input_key" ]]; then
-        multiqc_input_dirs+=("s3://$bucket/$multiqc_input_key")
+        multiqc_input_dirs+=("$(to_relative_s3_path "$multiqc_input_key")")
     else
         multiqc_input_dirs+=("")
     fi
 
     if [[ -n "$salmon_quant_key" ]]; then
-        salmon_quant_sf_files+=("s3://$bucket/$salmon_quant_key")
+        salmon_quant_sf_files+=("$(to_relative_s3_path "$salmon_quant_key")")
     else
         salmon_quant_sf_files+=("")
     fi
 
     if [[ -n "$multiqc_report_key" ]]; then
-        multiqc_reports+=("s3://$bucket/$multiqc_report_key")
+        multiqc_reports+=("$(to_relative_s3_path "$multiqc_report_key")")
     else
         multiqc_reports+=("")
     fi
@@ -98,7 +143,8 @@ printf '%s\n' "${multiqc_input_dirs[@]}" > "$tmp_dir/multiqc_input_dirs.txt"
 printf '%s\n' "${salmon_quant_sf_files[@]}" > "$tmp_dir/salmon_quant_sf_files.txt"
 printf '%s\n' "${multiqc_reports[@]}" > "$tmp_dir/multiqc_reports.txt"
 
-python3 - <<'PY' "$tmp_dir/sample_names.txt" "$tmp_dir/multiqc_input_dirs.txt" "$tmp_dir/salmon_quant_sf_files.txt" "$tmp_dir/multiqc_reports.txt" "$output_json" "$analysis_name" "$annotation_gtf"
+
+python3 - <<'PY' "$tmp_dir/sample_names.txt" "$tmp_dir/multiqc_input_dirs.txt" "$tmp_dir/salmon_quant_sf_files.txt" "$tmp_dir/multiqc_reports.txt" "$output_json" "$analysis_name" "$annotation_gtf" "$rna_seq_run_s3"
 import json
 import sys
 from pathlib import Path
@@ -113,14 +159,16 @@ multiqc_reports = read_lines(sys.argv[4])
 output_json = Path(sys.argv[5])
 analysis_name = sys.argv[6]
 annotation_gtf = sys.argv[7]
+sample_output_dir = sys.argv[8]
 
 data = {
-    "merge_rnaseq_samples_wf.analysis_name": analysis_name,
-    "merge_rnaseq_samples_wf.annotation_gtf": annotation_gtf,
-    "merge_rnaseq_samples_wf.sample_names": sample_names,
-    "merge_rnaseq_samples_wf.multiqc_input_dirs": multiqc_input_dirs,
-    "merge_rnaseq_samples_wf.salmon_quant_sf_files": salmon_quant_sf_files,
-    "merge_rnaseq_samples_wf.multiqc_reports": multiqc_reports,
+    "analysis_name": analysis_name,
+    "annotation_gtf": annotation_gtf,
+    "sample_output_dir": sample_output_dir,
+    "sample_names": sample_names,
+    "multiqc_input_dirs": multiqc_input_dirs,
+    "salmon_quant_sf_files": salmon_quant_sf_files,
+    "multiqc_reports": multiqc_reports,
 }
 
 output_json.write_text(json.dumps(data, indent=2), encoding="utf-8")

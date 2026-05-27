@@ -2,15 +2,24 @@
 set -euo pipefail
 
 usage() {
-	echo "Usage: $0 <run_ids_tsv> [output_tsv]" >&2
+	echo "Usage: $0 -i <run_ids_tsv> [-o <output_tsv>]" >&2
 }
 
-if [ $# -lt 1 ]; then
+run_ids_file=""
+output_tsv=""
+
+while getopts "i:o:" opt; do
+	case "$opt" in
+		i) run_ids_file=$OPTARG ;;
+		o) output_tsv=$OPTARG ;;
+		*) usage; exit 1 ;;
+	esac
+done
+
+if [ -z "$run_ids_file" ]; then
 	usage
 	exit 1
 fi
-
-run_ids_file=$1
 
 HOME_DIR="$HOME"
 echo "$HOME_DIR"
@@ -19,9 +28,7 @@ if [ ! -f "$run_ids_file" ]; then
 	exit 1
 fi
 
-if [ $# -ge 2 ]; then
-	output_tsv=$2
-else
+if [ -z "$output_tsv" ]; then
 	base_dir=$(dirname "$run_ids_file")
 	timestamp=$(date +"%Y%m%d-%H%M%S")
 	output_tsv="$base_dir/run_status_${timestamp}.tsv"
