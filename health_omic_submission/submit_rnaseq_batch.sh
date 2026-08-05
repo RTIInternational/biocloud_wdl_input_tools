@@ -1,7 +1,7 @@
 #!/bin/sh
 
 usage() {
-	echo "Usage: $0 -r <repo_dir> -i <inputs_dir> -c <charge_code> -o <output_uri_base> -a <aws_shared_credentials_file> [-s <run_ids_status_tsv>]" >&2
+	echo "Usage: $0 -r <repo_dir> -i <inputs_dir> -c <charge_code> -o <output_uri_base> -a <aws_shared_credentials_file> [-p <aws_profile>] [-s <run_ids_status_tsv>]" >&2
 }
 
 repo_dir=""
@@ -9,15 +9,17 @@ inputs_dir=""
 charge_code=""
 output_uri_base=""
 aws_shared_credentials_file=""
+aws_profile="default"
 run_ids_status_file=""
 
-while getopts "r:i:c:o:a:s:" opt; do
+while getopts "r:i:c:o:a:p:s:" opt; do
 	case "$opt" in
 		r) repo_dir=$OPTARG ;;
 		i) inputs_dir=$OPTARG ;;
 		c) charge_code=$OPTARG ;;
 		o) output_uri_base=$OPTARG ;;
 		a) aws_shared_credentials_file=$OPTARG ;;
+		p) aws_profile=$OPTARG ;;
 		s) run_ids_status_file=$OPTARG ;;
 		*) usage; exit 1 ;;
 	esac
@@ -60,7 +62,7 @@ for parameters in "$inputs_dir"/*_inputs.json; do
 	-v "$HOME/.aws:$HOME/.aws" \
 	-e task=start_run \
 	-e charge_code="$charge_code" \
-	-e aws_profile=default \
+	-e aws_profile="$aws_profile" \
 	-e AWS_SHARED_CREDENTIALS_FILE="$aws_shared_credentials_file" \
 	-e workflow_id=$workflow_id \
 	-e parameters="$parameters" \
